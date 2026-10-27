@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Registro de datos de facturación</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="catalogos-sat.js"></script>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#ffffff; --border:#dde2e8; --text:#1f2937;
+    --muted:#6b7280; --primary:#1a73e8; --primary-d:#1558b0; --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text); padding:40px 16px 60px;
+  }
+  .wrap{max-width:560px; margin:0 auto;}
+  h1{font-size:1.3rem; margin:0 0 4px;}
+  .sub{color:var(--muted); margin:0 0 24px; font-size:.9rem;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    padding:22px; box-shadow:0 1px 2px rgba(0,0,0,.03);
+  }
+  label{display:block; font-size:.8rem; font-weight:600; color:#374151; margin-bottom:5px;}
+  input, select{
+    width:100%; padding:10px; border:1px solid var(--border); border-radius:8px;
+    font-size:.95rem; background:#fff; color:var(--text); margin-bottom:14px;
+  }
+  input:focus, select:focus{outline:2px solid var(--primary); outline-offset:0; border-color:var(--primary);}
+  button{
+    cursor:pointer; border:none; border-radius:8px; padding:12px 18px;
+    font-size:.95rem; font-weight:600; background:var(--primary); color:#fff; width:100%;
+  }
+  button:hover{background:var(--primary-d);}
+  button:disabled{opacity:.6; cursor:default;}
+  .msg{font-size:.88rem; margin-top:12px; text-align:center;}
+  .msg.ok{color:#15803d;}
+  .msg.err{color:#dc2626;}
+  .exito{text-align:center; padding:30px 10px;}
+  .exito h2{margin:0 0 8px; font-size:1.1rem;}
+  .exito p{color:var(--muted); font-size:.9rem; margin:0 0 18px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Registro de datos de facturación</h1>
+  <p class="sub">Llena tus datos fiscales para que podamos facturarte correctamente.</p>
+
+  <div class="card">
+    <div id="vista-form">
+      <form id="form-cliente">
+        <label for="rfc">RFC *</label>
+        <input id="rfc" required maxlength="13" placeholder="XAXX010101000" style="text-transform:uppercase" />
+
+        <label for="razon">Razón social *</label>
+        <input id="razon" required placeholder="Empresa S.A. de C.V." />
+
+        <label for="cp">Código postal</label>
+        <input id="cp" maxlength="5" inputmode="numeric" placeholder="20000" />
+
+        <label for="estado">Estado</label>
+        <input id="estado" placeholder="Aguascalientes" />
+
+        <label for="regimen">Régimen fiscal</label>
+        <select id="regimen"><option value="">Selecciona…</option></select>
+
+        <label for="cfdi">Uso de CFDI</label>
+        <select id="cfdi"><option value="">Selecciona…</option></select>
+
+        <label for="email">E-mail</label>
+        <input id="email" type="email" placeholder="correo@dominio.com" />
+
+        <label for="celular">Celular</label>
+        <input id="celular" type="tel" placeholder="449 123 4567" />
+
+        <button type="submit" id="btn-guardar">Enviar datos</button>
+        <div class="msg" id="form-msg"></div>
+      </form>
+    </div>
+
+    <div id="vista-exito" class="exito" style="display:none;">
+      <h2>✅ ¡Datos registrados!</h2>
+      <p>Gracias, recibimos tu información correctamente.</p>
+      <button type="button" id="btn-otro">Registrar otro cliente</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = "https://iedagveazuytawxaczvh.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_50mxmoTfkRPoNJ3vu9HDkw_0tH0KaoN";
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  function llenarSelect(id, catalogo) {
+    const sel = document.getElementById(id);
+    catalogo.forEach(({ clave, desc }) => {
+      const opt = document.createElement("option");
+      opt.value = `${clave} - ${desc}`;
+      opt.textContent = `${clave} - ${desc}`;
+      sel.appendChild(opt);
+    });
+  }
+  llenarSelect("regimen", REGIMENES_FISCALES);
+  llenarSelect("cfdi", USOS_CFDI);
+
+  const form        = document.getElementById("form-cliente");
+  const formMsg     = document.getElementById("form-msg");
+  const btnGuardar  = document.getElementById("btn-guardar");
+  const vistaForm   = document.getElementById("vista-form");
+  const vistaExito  = document.getElementById("vista-exito");
+
+  function setMsg(text, ok) {
+    formMsg.textContent = text;
+    formMsg.className = "msg " + (ok ? "ok" : "err");
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const datos = {
+      rfc:     document.getElementById("rfc").value.trim().toUpperCase(),
+      razon:   document.getElementById("razon").value.trim(),
+      cp:      document.getElementById("cp").value.trim(),
+      estado:  document.getElementById("estado").value.trim(),
+      regimen: document.getElementById("regimen").value,
+      cfdi:    document.getElementById("cfdi").value,
+      email:   document.getElementById("email").value.trim(),
+      celular: document.getElementById("celular").value.trim(),
+    };
+
+    if (!datos.rfc || !datos.razon) {
+      setMsg("RFC y razón social son obligatorios.", false);
+      return;
+    }
+
+    btnGuardar.disabled = true;
+    setMsg("", true);
+    const { error } = await sb.from("clientes_facturacion").insert(datos);
+    btnGuardar.disabled = false;
+
+    if (error) {
+      setMsg("Error al guardar: " + error.message, false);
+      return;
+    }
+
+    vistaForm.style.display = "none";
+    vistaExito.style.display = "block";
+  });
+
+  document.getElementById("btn-otro").addEventListener("click", () => {
+    form.reset();
+    vistaExito.style.display = "none";
+    vistaForm.style.display = "block";
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Admin — Clientes de facturación</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="catalogos-sat.js"></script>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#ffffff; --border:#dde2e8; --text:#1f2937;
+    --muted:#6b7280; --primary:#1a73e8; --primary-d:#1558b0;
+    --danger:#dc2626; --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text); padding:24px 16px 60px;
+  }
+  .wrap{max-width:960px; margin:0 auto;}
+  .wrap-login{max-width:380px; margin:80px auto 0;}
+  h1{font-size:1.4rem; margin:0 0 4px;}
+  .sub{color:var(--muted); margin:0 0 24px; font-size:.9rem;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    padding:20px; margin-bottom:24px; box-shadow:0 1px 2px rgba(0,0,0,.03);
+  }
+  .card h2{font-size:1.05rem; margin:0 0 16px;}
+  label{display:block; font-size:.8rem; font-weight:600; color:#374151; margin-bottom:5px;}
+  input, select{
+    width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
+    font-size:.92rem; background:#fff; color:var(--text); margin-bottom:14px;
+  }
+  input:focus{outline:2px solid var(--primary); outline-offset:0; border-color:var(--primary);}
+  button{
+    cursor:pointer; border:none; border-radius:8px; padding:10px 18px;
+    font-size:.9rem; font-weight:600;
+  }
+  .btn-primary{background:var(--primary); color:#fff; width:100%;}
+  .btn-primary:hover{background:var(--primary-d);}
+  .btn-secondary{background:#eef2f6; color:var(--text);}
+  .btn-secondary:hover{background:#e3e8ee;}
+  .btn-danger{background:#fef2f2; color:var(--danger);}
+  .btn-danger:hover{background:#fee2e2;}
+  .msg{font-size:.85rem; margin-top:10px;}
+  .msg.ok{color:#15803d;}
+  .msg.err{color:var(--danger);}
+  table{width:100%; border-collapse:collapse; font-size:.83rem;}
+  th, td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap;}
+  th{color:var(--muted); font-weight:600; font-size:.75rem; text-transform:uppercase; letter-spacing:.03em;}
+  tbody tr:hover{background:#fafbfc;}
+  .table-scroll{overflow-x:auto;}
+  .top-row{display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;}
+  .empty{color:var(--muted); font-size:.88rem; padding:20px 0; text-align:center;}
+  .pill{font-size:.72rem; background:#eef2f6; padding:2px 8px; border-radius:999px; color:var(--muted);}
+  .row-actions{display:flex; gap:6px;}
+  .row-actions button{padding:5px 10px; font-size:.78rem;}
+  .header-bar{display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;}
+  .header-bar button{padding:7px 14px; font-size:.82rem;}
+</style>
+</head>
+<body>
+
+<!-- ───────────── LOGIN ───────────── -->
+<div class="wrap wrap-login" id="vista-login">
+  <div class="card">
+    <h2 style="margin-top:0;">Acceso administrador</h2>
+    <form id="form-login">
+      <label for="login-email">Correo</label>
+      <input id="login-email" type="email" required autocomplete="username" />
+      <label for="login-pass">Contraseña</label>
+      <input id="login-pass" type="password" required autocomplete="current-password" />
+      <button type="submit" class="btn-primary" id="btn-login">Entrar</button>
+      <div class="msg err" id="login-msg"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────────── PANEL ADMIN ───────────── -->
+<div class="wrap" id="vista-admin" style="display:none;">
+  <div class="header-bar">
+    <div>
+      <h1 style="margin-bottom:2px;">Panel de administrador</h1>
+      <p class="sub" style="margin:0;" id="admin-email"></p>
+    </div>
+    <button class="btn-secondary" id="btn-logout">Cerrar sesión</button>
+  </div>
+
+  <div class="card">
+    <div class="top-row">
+      <h2 style="margin:0;">Clientes registrados <span class="pill" id="count-pill">0</span></h2>
+      <button class="btn-secondary" id="btn-export">⬇ Descargar Excel</button>
+    </div>
+    <div class="table-scroll">
+      <table id="tabla">
+        <thead>
+          <tr>
+            <th>RFC</th><th>Razón social</th><th>CP</th><th>Estado</th>
+            <th>Régimen</th><th>CFDI</th><th>E-mail</th><th>Celular</th><th>Registrado</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="empty-msg" style="display:none;">Aún no hay clientes registrados.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = "https://iedagveazuytawxaczvh.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_50mxmoTfkRPoNJ3vu9HDkw_0tH0KaoN";
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const vistaLogin  = document.getElementById("vista-login");
+  const vistaAdmin  = document.getElementById("vista-admin");
+  const formLogin   = document.getElementById("form-login");
+  const loginMsg    = document.getElementById("login-msg");
+  const btnLogin    = document.getElementById("btn-login");
+  const adminEmail  = document.getElementById("admin-email");
+
+  const tbody      = document.getElementById("tbody");
+  const emptyMsg   = document.getElementById("empty-msg");
+  const countPill  = document.getElementById("count-pill");
+
+  async function mostrarSegunSesion() {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) {
+      vistaLogin.style.display = "none";
+      vistaAdmin.style.display = "block";
+      adminEmail.textContent = session.user.email;
+      cargarClientes();
+    } else {
+      vistaLogin.style.display = "block";
+      vistaAdmin.style.display = "none";
+    }
+  }
+
+  formLogin.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    loginMsg.textContent = "";
+    btnLogin.disabled = true;
+    const email = document.getElementById("login-email").value.trim();
+    const pass  = document.getElementById("login-pass").value;
+
+    const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+    btnLogin.disabled = false;
+
+    if (error) {
+      loginMsg.textContent = "Correo o contraseña incorrectos.";
+      return;
+    }
+    mostrarSegunSesion();
+  });
+
+  document.getElementById("btn-logout").addEventListener("click", async () => {
+    await sb.auth.signOut();
+    mostrarSegunSesion();
+  });
+
+  async function cargarClientes() {
+    const { data, error } = await sb
+      .from("clientes_facturacion")
+      .select("*")
+      .order("id", { ascending: false });
+
+    if (error) {
+      tbody.innerHTML = "";
+      emptyMsg.style.display = "block";
+      emptyMsg.textContent = "Error cargando datos: " + error.message;
+      return;
+    }
+
+    countPill.textContent = data.length;
+    tbody.innerHTML = "";
+    emptyMsg.style.display = data.length ? "none" : "block";
+
+    data.forEach((c) => {
+      const tr = document.createElement("tr");
+      const fecha = c.created_at ? new Date(c.created_at).toLocaleDateString("es-MX") : "";
+      tr.innerHTML = `
+        <td>${c.rfc ?? ""}</td>
+        <td>${c.razon ?? ""}</td>
+        <td>${c.cp ?? ""}</td>
+        <td>${c.estado ?? ""}</td>
+        <td>${c.regimen ?? ""}</td>
+        <td>${c.cfdi ?? ""}</td>
+        <td>${c.email ?? ""}</td>
+        <td>${c.celular ?? ""}</td>
+        <td>${fecha}</td>
+        <td class="row-actions">
+          <button class="btn-danger" data-del="${c.id}">Eliminar</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+
+    tbody.querySelectorAll("[data-del]").forEach((btn) => {
+      btn.addEventListener("click", () => eliminarCliente(btn.dataset.del));
+    });
+  }
+
+  async function eliminarCliente(id) {
+    if (!confirm("¿Eliminar este cliente? Esta acción no se puede deshacer.")) return;
+    const { error } = await sb.from("clientes_facturacion").delete().eq("id", id);
+    if (error) { alert("Error al eliminar: " + error.message); return; }
+    cargarClientes();
+  }
+
+  document.getElementById("btn-export").addEventListener("click", async () => {
+    const { data, error } = await sb
+      .from("clientes_facturacion")
+      .select("*")
+      .order("id", { ascending: true });
+
+    if (error) { alert("Error al exportar: " + error.message); return; }
+    if (!data.length) { alert("No hay datos para exportar."); return; }
+
+    const filas = data.map((c) => ({
+      ID: c.id,
+      RFC: c.rfc,
+      "RAZÓN SOCIAL": c.razon,
+      "CÓDIGO POSTAL": c.cp,
+      ESTADO: c.estado,
+      "RÉGIMEN FISCAL": c.regimen,
+      "USO DE FACTURA (CFDI)": c.cfdi,
+      "E-MAIL": c.email,
+      CELULAR: c.celular,
+      "FECHA REGISTRO": c.created_at ? new Date(c.created_at).toLocaleString("es-MX") : "",
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(filas);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Clientes");
+    const fecha = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `clientes_facturacion_${fecha}.xlsx`);
+  });
+
+  mostrarSegunSesion();
+</script>
+</body>
+</html>
