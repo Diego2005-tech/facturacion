@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Catálogo de Clientes — Facturación</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="catalogos-sat.js"></script>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#ffffff; --border:#dde2e8; --text:#1f2937;
+    --muted:#6b7280; --primary:#1a73e8; --primary-d:#1558b0;
+    --danger:#dc2626; --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text); padding:24px 16px 60px;
+  }
+  .wrap{max-width:960px; margin:0 auto;}
+  h1{font-size:1.4rem; margin:0 0 4px;}
+  .sub{color:var(--muted); margin:0 0 24px; font-size:.9rem;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    padding:20px; margin-bottom:24px; box-shadow:0 1px 2px rgba(0,0,0,.03);
+  }
+  .card h2{font-size:1.05rem; margin:0 0 16px;}
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  @media (max-width:640px){ .grid{grid-template-columns:1fr;} }
+  label{display:block; font-size:.8rem; font-weight:600; color:#374151; margin-bottom:5px;}
+  input, select{
+    width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
+    font-size:.92rem; background:#fff; color:var(--text);
+  }
+  input:focus, select:focus{outline:2px solid var(--primary); outline-offset:0; border-color:var(--primary);}
+  .field{margin-bottom:0;}
+  .actions{display:flex; gap:10px; margin-top:18px; align-items:center;}
+  button{
+    cursor:pointer; border:none; border-radius:8px; padding:10px 18px;
+    font-size:.9rem; font-weight:600;
+  }
+  .btn-primary{background:var(--primary); color:#fff;}
+  .btn-primary:hover{background:var(--primary-d);}
+  .btn-secondary{background:#eef2f6; color:var(--text);}
+  .btn-secondary:hover{background:#e3e8ee;}
+  .btn-danger{background:#fef2f2; color:var(--danger);}
+  .btn-danger:hover{background:#fee2e2;}
+  .msg{font-size:.85rem; margin-left:4px;}
+  .msg.ok{color:#15803d;}
+  .msg.err{color:var(--danger);}
+  table{width:100%; border-collapse:collapse; font-size:.83rem;}
+  th, td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap;}
+  th{color:var(--muted); font-weight:600; font-size:.75rem; text-transform:uppercase; letter-spacing:.03em;}
+  tbody tr:hover{background:#fafbfc;}
+  .table-scroll{overflow-x:auto;}
+  .top-row{display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;}
+  .empty{color:var(--muted); font-size:.88rem; padding:20px 0; text-align:center;}
+  .pill{font-size:.72rem; background:#eef2f6; padding:2px 8px; border-radius:999px; color:var(--muted);}
+  .row-actions{display:flex; gap:6px;}
+  .row-actions button{padding:5px 10px; font-size:.78rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Catálogo de clientes para facturación</h1>
+  <p class="sub">Formulario de datos fiscales — se guarda directo en Supabase.</p>
+
+  <div class="card">
+    <h2 id="form-title">Nuevo cliente</h2>
+    <form id="form-cliente">
+      <div class="grid">
+        <div class="field">
+          <label for="rfc">RFC *</label>
+          <input id="rfc" required maxlength="13" placeholder="XAXX010101000" style="text-transform:uppercase" />
+        </div>
+        <div class="field">
+          <label for="razon">Razón social *</label>
+          <input id="razon" required placeholder="Empresa S.A. de C.V." />
+        </div>
+        <div class="field">
+          <label for="cp">Código postal</label>
+          <input id="cp" maxlength="5" inputmode="numeric" placeholder="20000" />
+        </div>
+        <div class="field">
+          <label for="estado">Estado</label>
+          <input id="estado" placeholder="Aguascalientes" />
+        </div>
+        <div class="field">
+          <label for="regimen">Régimen fiscal</label>
+          <select id="regimen"><option value="">Selecciona…</option></select>
+        </div>
+        <div class="field">
+          <label for="cfdi">Uso de CFDI</label>
+          <select id="cfdi"><option value="">Selecciona…</option></select>
+        </div>
+        <div class="field">
+          <label for="email">E-mail</label>
+          <input id="email" type="email" placeholder="correo@dominio.com" />
+        </div>
+        <div class="field">
+          <label for="celular">Celular</label>
+          <input id="celular" type="tel" placeholder="449 123 4567" />
+        </div>
+      </div>
+      <div class="actions">
+        <button type="submit" class="btn-primary" id="btn-guardar">Guardar cliente</button>
+        <button type="button" class="btn-secondary" id="btn-cancelar" style="display:none;">Cancelar edición</button>
+        <span class="msg" id="form-msg"></span>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="top-row">
+      <h2 style="margin:0;">Clientes guardados <span class="pill" id="count-pill">0</span></h2>
+      <button class="btn-secondary" id="btn-export">⬇ Descargar Excel</button>
+    </div>
+    <div class="table-scroll">
+      <table id="tabla">
+        <thead>
+          <tr>
+            <th>RFC</th><th>Razón social</th><th>CP</th><th>Estado</th>
+            <th>Régimen</th><th>CFDI</th><th>E-mail</th><th>Celular</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="empty-msg" style="display:none;">Aún no hay clientes guardados.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ──────────────────────────────────────────────────────────
+  //  CONFIGURA AQUÍ tus credenciales de Supabase antes de
+  //  publicar (Settings → API en tu proyecto de Supabase).
+  //  La "anon public key" es segura de usar en el navegador.
+  // ──────────────────────────────────────────────────────────
+  const SUPABASE_URL = "https://iedagveazuytawxaczvh.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_50mxmoTfkRPoNJ3vu9HDkw_0tH0KaoN";
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Llenar los <select> con los catálogos del SAT
+  function llenarSelect(id, catalogo) {
+    const sel = document.getElementById(id);
+    catalogo.forEach(({ clave, desc }) => {
+      const opt = document.createElement("option");
+      opt.value = `${clave} - ${desc}`;
+      opt.textContent = `${clave} - ${desc}`;
+      sel.appendChild(opt);
+    });
+  }
+  llenarSelect("regimen", REGIMENES_FISCALES);
+  llenarSelect("cfdi", USOS_CFDI);
+
+  const form       = document.getElementById("form-cliente");
+  const tbody      = document.getElementById("tbody");
+  const emptyMsg   = document.getElementById("empty-msg");
+  const countPill  = document.getElementById("count-pill");
+  const formMsg    = document.getElementById("form-msg");
+  const formTitle  = document.getElementById("form-title");
+  const btnGuardar = document.getElementById("btn-guardar");
+  const btnCancelar= document.getElementById("btn-cancelar");
+
+  let editId = null; // si no es null, estamos editando ese registro
+
+  function setMsg(text, ok) {
+    formMsg.textContent = text;
+    formMsg.className = "msg " + (ok ? "ok" : "err");
+    if (text) setTimeout(() => (formMsg.textContent = ""), 3500);
+  }
+
+  function leerForm() {
+    return {
+      rfc:     document.getElementById("rfc").value.trim().toUpperCase(),
+      razon:   document.getElementById("razon").value.trim(),
+      cp:      document.getElementById("cp").value.trim(),
+      estado:  document.getElementById("estado").value.trim(),
+      regimen: document.getElementById("regimen").value,
+      cfdi:    document.getElementById("cfdi").value,
+      email:   document.getElementById("email").value.trim(),
+      celular: document.getElementById("celular").value.trim(),
+    };
+  }
+
+  function limpiarForm() {
+    form.reset();
+    editId = null;
+    formTitle.textContent = "Nuevo cliente";
+    btnGuardar.textContent = "Guardar cliente";
+    btnCancelar.style.display = "none";
+  }
+
+  async function cargarClientes() {
+    const { data, error } = await sb
+      .from("clientes_facturacion")
+      .select("*")
+      .order("id", { ascending: false });
+
+    if (error) {
+      tbody.innerHTML = "";
+      emptyMsg.style.display = "block";
+      emptyMsg.textContent = "Error cargando datos: " + error.message;
+      return;
+    }
+
+    countPill.textContent = data.length;
+    tbody.innerHTML = "";
+    emptyMsg.style.display = data.length ? "none" : "block";
+
+    data.forEach((c) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${c.rfc ?? ""}</td>
+        <td>${c.razon ?? ""}</td>
+        <td>${c.cp ?? ""}</td>
+        <td>${c.estado ?? ""}</td>
+        <td>${c.regimen ?? ""}</td>
+        <td>${c.cfdi ?? ""}</td>
+        <td>${c.email ?? ""}</td>
+        <td>${c.celular ?? ""}</td>
+        <td class="row-actions">
+          <button class="btn-secondary" data-edit="${c.id}">Editar</button>
+          <button class="btn-danger" data-del="${c.id}">Eliminar</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+
+    // listeners de editar/eliminar
+    tbody.querySelectorAll("[data-edit]").forEach((btn) => {
+      btn.addEventListener("click", () => iniciarEdicion(btn.dataset.edit, data));
+    });
+    tbody.querySelectorAll("[data-del]").forEach((btn) => {
+      btn.addEventListener("click", () => eliminarCliente(btn.dataset.del));
+    });
+  }
+
+  function iniciarEdicion(id, data) {
+    const c = data.find((x) => String(x.id) === String(id));
+    if (!c) return;
+    editId = c.id;
+    document.getElementById("rfc").value = c.rfc || "";
+    document.getElementById("razon").value = c.razon || "";
+    document.getElementById("cp").value = c.cp || "";
+    document.getElementById("estado").value = c.estado || "";
+    document.getElementById("regimen").value = c.regimen || "";
+    document.getElementById("cfdi").value = c.cfdi || "";
+    document.getElementById("email").value = c.email || "";
+    document.getElementById("celular").value = c.celular || "";
+    formTitle.textContent = "Editando cliente #" + c.id;
+    btnGuardar.textContent = "Actualizar cliente";
+    btnCancelar.style.display = "inline-block";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function eliminarCliente(id) {
+    if (!confirm("¿Eliminar este cliente? Esta acción no se puede deshacer.")) return;
+    const { error } = await sb.from("clientes_facturacion").delete().eq("id", id);
+    if (error) { alert("Error al eliminar: " + error.message); return; }
+    cargarClientes();
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const datos = leerForm();
+    if (!datos.rfc || !datos.razon) {
+      setMsg("RFC y razón social son obligatorios.", false);
+      return;
+    }
+
+    btnGuardar.disabled = true;
+    let error;
+    if (editId) {
+      ({ error } = await sb.from("clientes_facturacion").update(datos).eq("id", editId));
+    } else {
+      ({ error } = await sb.from("clientes_facturacion").insert(datos));
+    }
+    btnGuardar.disabled = false;
+
+    if (error) {
+      setMsg("Error: " + error.message, false);
+      return;
+    }
+    setMsg(editId ? "Cliente actualizado ✓" : "Cliente guardado ✓", true);
+    limpiarForm();
+    cargarClientes();
+  });
+
+  btnCancelar.addEventListener("click", limpiarForm);
+
+  document.getElementById("btn-export").addEventListener("click", async () => {
+    const { data, error } = await sb
+      .from("clientes_facturacion")
+      .select("*")
+      .order("id", { ascending: true });
+
+    if (error) { alert("Error al exportar: " + error.message); return; }
+    if (!data.length) { alert("No hay datos para exportar."); return; }
+
+    const filas = data.map((c) => ({
+      ID: c.id,
+      RFC: c.rfc,
+      "RAZÓN SOCIAL": c.razon,
+      "CÓDIGO POSTAL": c.cp,
+      ESTADO: c.estado,
+      "RÉGIMEN FISCAL": c.regimen,
+      "USO DE FACTURA (CFDI)": c.cfdi,
+      "E-MAIL": c.email,
+      CELULAR: c.celular,
+      "FECHA REGISTRO": c.created_at ? new Date(c.created_at).toLocaleString("es-MX") : "",
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(filas);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Clientes");
+    const fecha = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `clientes_facturacion_${fecha}.xlsx`);
+  });
+
+  cargarClientes();
+</script>
+</body>
+</html>
